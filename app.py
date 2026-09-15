@@ -2,7 +2,8 @@
 Economic Index Tracker
 ----------------------
 A small, dependency-free web app that tracks the change in major economic
-indexes (NASDAQ Composite and S&P 100) and shows related news headlines.
+indexes (NASDAQ Composite and S&P 100), shows related news headlines, and
+lets you look up any company by ticker symbol (price, 50-day chart, news).
 
 Run with:
     python3 app.py
@@ -15,10 +16,11 @@ Only the Python standard library is used, so no `pip install` is required.
 import json
 import re
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import URLError, HTTPError
-from urllib.parse import quote
+from urllib.parse import quote, urlparse, parse_qs
 from urllib.request import Request, urlopen
 
 HOST = "0.0.0.0"
@@ -26,11 +28,13 @@ PORT = 8000
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-# Symbol -> display name for the indexes we track.
+# Symbol -> display name for the indexes we always track on the dashboard.
 INDEXES = {
     "^IXIC": "NASDAQ Composite",
     "^OEX": "S&P 100",
 }
+
+HISTORY_DAYS = 50
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -52,24 +56,40 @@ def fetch_text(url):
         return resp.read().decode("utf-8", errors="replace")
 
 
-def get_index_quote(symbol, name):
+def get_chart_result(symbol, range_="3mo"):
     url = (
         "https://query1.finance.yahoo.com/v8/finance/chart/"
-        f"{quote(symbol)}?interval=1d&range=1d"
+        f"{quote(symbol)}?interval=1d&range={range_}"
     )
     data = fetch_json(url)
-    result = data["chart"]["result"][0]
+    chart = data.get("chart", {})
+    error = chart.get("error")
+    if error:
+        raise ValueError(error.get("description") or "Unknown symbol")
+    results = chart.get("result")
+    if not results:
+        raise ValueError(f"No data found for '{symbol}'")
+    return results[0]
+
+
+def get_quote(symbol, name=None):
+    result = get_chart_result(symbol, range_="1d")
     meta = result["meta"]
 
     price = meta.get("regularMarketPrice")
     prev_close = meta.get("previousClose") or meta.get("chartPreviousClose")
 
+    if price is None or prev_close is None:
+        raise ValueError(f"No price data found for '{symbol}'")
+
     change = price - prev_close
     percent_change = (change / prev_close) * 100 if prev_close else 0
 
+    display_name = name or meta.get("longName") or meta.get("shortName") or symbol
+
     return {
         "symbol": symbol,
-        "name": name,
+        "name": display_name,
         "price": round(price, 2),
         "previousClose": round(prev_close, 2),
         "change": round(change, 2),
@@ -78,13 +98,33 @@ def get_index_quote(symbol, name):
     }
 
 
+def get_history(symbol, days=HISTORY_DAYS):
+    result = get_chart_result(symbol, range_="3mo")
+    timestamps = result.get("timestamp") or []
+    quote_block = result.get("indicators", {}).get("quote", [{}])[0]
+    closes = quote_block.get("close") or []
+
+    pairs = [(t, c) for t, c in zip(timestamps, closes) if c is not None]
+    pairs = pairs[-days:]
+
+    return [
+        {
+            "date": datetime.fromtimestamp(t, tz=timezone.utc).strftime("%Y-%m-%d"),
+            "close": round(c, 2),
+        }
+        for t, c in pairs
+    ]
+
+
 def get_indexes():
     indexes = []
     errors = []
     for symbol, name in INDEXES.items():
         try:
-            indexes.append(get_index_quote(symbol, name))
-        except (URLError, HTTPError, KeyError, IndexError, TypeError) as exc:
+            quote_data = get_quote(symbol, name)
+            quote_data["history"] = get_history(symbol)
+            indexes.append(quote_data)
+        except (URLError, HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
             errors.append(f"{name}: {exc}")
     return {"indexes": indexes, "errors": errors}
 
@@ -134,6 +174,30 @@ def get_news():
     return {"news": news, "errors": errors}
 
 
+def get_company_lookup(raw_symbol):
+    symbol = re.sub(r"[^A-Za-z0-9.\-^]", "", raw_symbol or "").upper()
+    if not symbol:
+        return {"error": "Please enter a ticker symbol, e.g. AAPL."}
+
+    result = {"symbol": symbol}
+    errors = []
+
+    try:
+        result["quote"] = get_quote(symbol)
+        result["history"] = get_history(symbol)
+    except (URLError, HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
+        return {"error": f"Couldn't find data for '{symbol}': {exc}"}
+
+    try:
+        result["news"] = get_news_for_query(f"{symbol} stock")
+    except (URLError, HTTPError, ET.ParseError) as exc:
+        result["news"] = []
+        errors.append(f"news: {exc}")
+
+    result["errors"] = errors
+    return result
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass  # keep console output quiet
@@ -160,16 +224,23 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        if self.path == "/" or self.path == "/index.html":
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path == "/" or path == "/index.html":
             self._send_static("index.html", "text/html; charset=utf-8")
-        elif self.path == "/style.css":
+        elif path == "/style.css":
             self._send_static("style.css", "text/css; charset=utf-8")
-        elif self.path == "/script.js":
+        elif path == "/script.js":
             self._send_static("script.js", "application/javascript; charset=utf-8")
-        elif self.path == "/api/indexes":
+        elif path == "/api/indexes":
             self._send_json(get_indexes())
-        elif self.path == "/api/news":
+        elif path == "/api/news":
             self._send_json(get_news())
+        elif path == "/api/search":
+            params = parse_qs(parsed.query)
+            symbol = (params.get("symbol") or [""])[0]
+            self._send_json(get_company_lookup(symbol))
         else:
             self.send_error(404, "Not found")
 

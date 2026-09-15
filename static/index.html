@@ -14,9 +14,26 @@
 
   <main>
     <section class="indexes-section">
-      <h2>Market Indexes</h2>
+      <h2>Market Indexes &middot; 50-Day Trend</h2>
       <div id="indexes-status" class="status-text"></div>
       <div id="indexes-grid" class="indexes-grid"></div>
+    </section>
+
+    <section class="search-section">
+      <h2>Look Up a Company</h2>
+      <form id="search-form" class="search-form">
+        <input
+          id="search-input"
+          type="text"
+          placeholder="Ticker symbol, e.g. AAPL"
+          maxlength="10"
+          autocapitalize="characters"
+          autocomplete="off"
+        />
+        <button type="submit">Search</button>
+      </form>
+      <div id="search-status" class="status-text"></div>
+      <div id="search-result"></div>
     </section>
 
     <section class="news-section">

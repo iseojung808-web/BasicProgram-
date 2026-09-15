@@ -108,6 +108,7 @@ h2 {
 .index-card .change {
   font-size: 0.95rem;
   font-weight: 600;
+  margin-bottom: 12px;
 }
 
 .change.up {
@@ -116,6 +117,69 @@ h2 {
 
 .change.down {
   color: var(--down);
+}
+
+.chart-svg {
+  width: 100%;
+  height: 70px;
+  display: block;
+}
+
+.chart-range {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.chart-empty {
+  font-size: 0.8rem;
+  color: var(--muted);
+  padding: 20px 0;
+  text-align: center;
+}
+
+.search-section {
+  margin-bottom: 40px;
+}
+
+.search-form {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.search-form input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+}
+
+.search-form input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.search-form button {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.search-form button:hover {
+  opacity: 0.9;
+}
+
+#search-result .indexes-grid {
+  margin-bottom: 20px;
 }
 
 .news-list {
