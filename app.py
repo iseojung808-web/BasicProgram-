@@ -227,10 +227,10 @@ def _fmt(d, key):
 
 def _fetch_quote_summary(symbol, force_refresh_crumb=False):
     crumb = get_yahoo_crumb(force_refresh=force_refresh_crumb)
+    modules = "assetProfile,financialData,incomeStatementHistory,balanceSheetHistory,price"
     url = (
         "https://query1.finance.yahoo.com/v10/finance/quoteSummary/"
-        f"{quote(symbol)}?modules=assetProfile,financialData,incomeStatementHistory,balanceSheetHistory"
-        f"&crumb={quote(crumb)}"
+        f"{quote(symbol)}?modules={modules}&crumb={quote(crumb)}"
     )
     return fetch_json_with_yahoo_session(url)
 
@@ -252,10 +252,12 @@ def get_company_profile_and_financials(symbol):
 
     asset = r.get("assetProfile") or {}
     financial = r.get("financialData") or {}
+    price_module = r.get("price") or {}
     income_list = (r.get("incomeStatementHistory") or {}).get("incomeStatementHistory") or []
     balance_list = (r.get("balanceSheetHistory") or {}).get("balanceSheetStatements") or []
     income = income_list[0] if income_list else {}
     balance = balance_list[0] if balance_list else {}
+    market_cap = _fmt(price_module, "marketCap") or _raw(price_module, "marketCap")
 
     officers = asset.get("companyOfficers") or []
     ceo = None
@@ -294,7 +296,7 @@ def get_company_profile_and_financials(symbol):
         "profitMargin": _fmt(financial, "profitMargins"),
     }
 
-    return profile, financials
+    return profile, financials, market_cap
 
 
 def get_founders(company_name):
@@ -358,9 +360,11 @@ def get_company_lookup(raw_symbol):
         errors.append(f"news: {exc}")
 
     try:
-        profile, financials = get_company_profile_and_financials(symbol)
+        profile, financials, market_cap = get_company_profile_and_financials(symbol)
         result["profile"] = profile
         result["financials"] = financials
+        if market_cap:
+            result["quote"]["marketCap"] = market_cap
     except (URLError, HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
         result["profile"] = None
         result["financials"] = None

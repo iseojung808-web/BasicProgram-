@@ -59,6 +59,7 @@ function buildIndexCard(idx) {
   card.innerHTML = `
     <div class="name">${idx.name}</div>
     <div class="symbol">${idx.symbol}</div>
+    ${idx.marketCap ? `<div class="market-cap">Market Cap: ${idx.marketCap}</div>` : ""}
     <div class="price">${idx.price.toLocaleString()}</div>
     <div class="change ${direction}">
       ${arrow} ${formatChange(idx.change)} (${formatChange(idx.percentChange)}%)

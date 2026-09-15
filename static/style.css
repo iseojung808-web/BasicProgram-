@@ -99,6 +99,13 @@ h2 {
   margin-bottom: 12px;
 }
 
+.index-card .market-cap {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
 .index-card .price {
   font-size: 1.8rem;
   font-weight: 700;
