@@ -17,11 +17,12 @@ import json
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+from http.cookiejar import CookieJar
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import URLError, HTTPError
 from urllib.parse import quote, urlparse, parse_qs
-from urllib.request import Request, urlopen
+from urllib.request import Request, urlopen, build_opener, HTTPCookieProcessor
 
 HOST = "0.0.0.0"
 PORT = 8000
@@ -43,6 +44,12 @@ USER_AGENT = (
 
 REQUEST_TIMEOUT = 8
 
+# Yahoo's quoteSummary endpoint requires a session cookie plus a "crumb"
+# anti-bot token. The chart/quote endpoint used elsewhere does not need this.
+_YAHOO_COOKIE_JAR = CookieJar()
+_YAHOO_OPENER = build_opener(HTTPCookieProcessor(_YAHOO_COOKIE_JAR))
+_yahoo_crumb_cache = {"value": None}
+
 
 def fetch_json(url):
     req = Request(url, headers={"User-Agent": USER_AGENT})
@@ -54,6 +61,40 @@ def fetch_text(url):
     req = Request(url, headers={"User-Agent": USER_AGENT})
     with urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
         return resp.read().decode("utf-8", errors="replace")
+
+
+def fetch_json_with_yahoo_session(url):
+    req = Request(url, headers={"User-Agent": USER_AGENT})
+    with _YAHOO_OPENER.open(req, timeout=REQUEST_TIMEOUT) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def get_yahoo_crumb(force_refresh=False):
+    if force_refresh:
+        _yahoo_crumb_cache["value"] = None
+    if _yahoo_crumb_cache["value"]:
+        return _yahoo_crumb_cache["value"]
+
+    # Visiting the finance homepage first sets the cookies Yahoo expects
+    # before it will hand out a crumb.
+    warmup_req = Request("https://fc.yahoo.com", headers={"User-Agent": USER_AGENT})
+    try:
+        _YAHOO_OPENER.open(warmup_req, timeout=REQUEST_TIMEOUT).read()
+    except (URLError, HTTPError):
+        pass
+
+    crumb_req = Request(
+        "https://query2.finance.yahoo.com/v1/test/getcrumb",
+        headers={"User-Agent": USER_AGENT},
+    )
+    with _YAHOO_OPENER.open(crumb_req, timeout=REQUEST_TIMEOUT) as resp:
+        crumb = resp.read().decode("utf-8").strip()
+
+    if not crumb:
+        raise ValueError("Could not obtain a Yahoo Finance session crumb")
+
+    _yahoo_crumb_cache["value"] = crumb
+    return crumb
 
 
 def get_chart_result(symbol, range_="3mo"):
@@ -184,12 +225,26 @@ def _fmt(d, key):
     return entry.get("fmt") if isinstance(entry, dict) else None
 
 
-def get_company_profile_and_financials(symbol):
+def _fetch_quote_summary(symbol, force_refresh_crumb=False):
+    crumb = get_yahoo_crumb(force_refresh=force_refresh_crumb)
     url = (
         "https://query1.finance.yahoo.com/v10/finance/quoteSummary/"
         f"{quote(symbol)}?modules=assetProfile,financialData,incomeStatementHistory,balanceSheetHistory"
+        f"&crumb={quote(crumb)}"
     )
-    data = fetch_json(url)
+    return fetch_json_with_yahoo_session(url)
+
+
+def get_company_profile_and_financials(symbol):
+    try:
+        data = _fetch_quote_summary(symbol)
+    except HTTPError as exc:
+        if exc.code == 401:
+            # The cached crumb may have expired; get a fresh one and retry once.
+            data = _fetch_quote_summary(symbol, force_refresh_crumb=True)
+        else:
+            raise
+
     results = data.get("quoteSummary", {}).get("result")
     if not results:
         raise ValueError("No company profile data found")
