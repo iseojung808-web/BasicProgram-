@@ -15,7 +15,9 @@ Only the Python standard library is used, so no `pip install` is required.
 
 import json
 import os
+import random
 import re
+import string
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from http.cookiejar import CookieJar
@@ -39,6 +41,10 @@ INDEXES = {
 }
 
 HISTORY_DAYS = 50
+
+# Watchlists are keyed by a 6-letter code instead of an account/login, so the
+# same list can be pulled up again later from any device.
+WATCHLIST_CODE_LENGTH = 6
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -360,26 +366,42 @@ def get_founders(company_name):
     return names
 
 
-def load_watchlist():
+def load_watchlist_store():
     try:
         with WATCHLIST_FILE.open("r", encoding="utf-8") as f:
             data = json.load(f)
-        return data if isinstance(data, list) else []
+        return data if isinstance(data, dict) else {}
     except (FileNotFoundError, json.JSONDecodeError):
-        return []
+        return {}
 
 
-def save_watchlist(symbols):
+def save_watchlist_store(store):
     with WATCHLIST_FILE.open("w", encoding="utf-8") as f:
-        json.dump(symbols, f)
+        json.dump(store, f)
 
 
 def normalize_symbol(raw_symbol):
     return re.sub(r"[^A-Za-z0-9.\-^]", "", raw_symbol or "").upper()
 
 
-def get_watchlist_quotes():
-    symbols = load_watchlist()
+def normalize_code(raw_code):
+    return re.sub(r"[^A-Za-z]", "", raw_code or "").upper()
+
+
+def generate_watchlist_code(store):
+    while True:
+        code = "".join(random.choices(string.ascii_uppercase, k=WATCHLIST_CODE_LENGTH))
+        if code not in store:
+            return code
+
+
+def get_watchlist_quotes(raw_code):
+    code = normalize_code(raw_code)
+    if not code:
+        return {"code": None, "watchlist": [], "errors": []}
+
+    store = load_watchlist_store()
+    symbols = store.get(code, [])
     quotes = []
     errors = []
     for symbol in symbols:
@@ -387,25 +409,41 @@ def get_watchlist_quotes():
             quotes.append(get_quote(symbol))
         except (URLError, HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
             errors.append(f"{symbol}: {exc}")
-    return {"watchlist": quotes, "errors": errors}
+    return {"code": code, "watchlist": quotes, "errors": errors}
 
 
-def add_to_watchlist(raw_symbol):
+def add_to_watchlist(raw_code, raw_symbol):
     symbol = normalize_symbol(raw_symbol)
     if not symbol:
         return {"error": "Please enter a ticker symbol, e.g. AAPL."}
-    symbols = load_watchlist()
+
+    store = load_watchlist_store()
+    code = normalize_code(raw_code)
+    generated = len(code) != WATCHLIST_CODE_LENGTH
+    if generated:
+        code = generate_watchlist_code(store)
+
+    symbols = store.setdefault(code, [])
     if symbol not in symbols:
         symbols.append(symbol)
-        save_watchlist(symbols)
-    return get_watchlist_quotes()
+        save_watchlist_store(store)
+
+    result = get_watchlist_quotes(code)
+    result["generated"] = generated
+    return result
 
 
-def remove_from_watchlist(raw_symbol):
+def remove_from_watchlist(raw_code, raw_symbol):
+    code = normalize_code(raw_code)
     symbol = normalize_symbol(raw_symbol)
-    symbols = [s for s in load_watchlist() if s != symbol]
-    save_watchlist(symbols)
-    return get_watchlist_quotes()
+    if not code:
+        return {"error": "Missing watchlist code."}
+
+    store = load_watchlist_store()
+    if code in store:
+        store[code] = [s for s in store[code] if s != symbol]
+        save_watchlist_store(store)
+    return get_watchlist_quotes(code)
 
 
 def get_company_lookup(raw_symbol):
@@ -497,7 +535,9 @@ class Handler(BaseHTTPRequestHandler):
             symbol = (params.get("symbol") or [""])[0]
             self._send_json(get_company_lookup(symbol))
         elif path == "/api/watchlist":
-            self._send_json(get_watchlist_quotes())
+            params = parse_qs(parsed.query)
+            code = (params.get("code") or [""])[0]
+            self._send_json(get_watchlist_quotes(code))
         else:
             self.send_error(404, "Not found")
 
@@ -513,7 +553,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path == "/api/watchlist":
             body = self._read_json_body()
-            self._send_json(add_to_watchlist(body.get("symbol", "")))
+            self._send_json(add_to_watchlist(body.get("code", ""), body.get("symbol", "")))
         else:
             self.send_error(404, "Not found")
 
@@ -521,8 +561,9 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/api/watchlist":
             params = parse_qs(parsed.query)
+            code = (params.get("code") or [""])[0]
             symbol = (params.get("symbol") or [""])[0]
-            self._send_json(remove_from_watchlist(symbol))
+            self._send_json(remove_from_watchlist(code, symbol))
         else:
             self.send_error(404, "Not found")
 

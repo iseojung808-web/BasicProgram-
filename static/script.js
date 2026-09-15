@@ -14,6 +14,11 @@ const watchlistInput = document.getElementById("watchlist-input");
 const watchlistStatus = document.getElementById("watchlist-status");
 const watchlistGrid = document.getElementById("watchlist-grid");
 
+const watchlistCodeForm = document.getElementById("watchlist-code-form");
+const watchlistCodeInput = document.getElementById("watchlist-code-input");
+const watchlistCodeLabel = document.getElementById("watchlist-code-label");
+const watchlistCopyBtn = document.getElementById("watchlist-copy-btn");
+
 function formatChange(value) {
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(2)}`;
@@ -387,6 +392,74 @@ function handleSearch(event) {
   runSearch(searchInput.value.trim());
 }
 
+// --- Watchlist codes ----------------------------------------------------
+// Watchlists live server-side keyed by a 6-letter code (no login needed).
+// The code is remembered in this browser via localStorage so reloads and
+// restarts of the server still find the same list; entering the same code
+// on another device/browser pulls up the same watchlist there too.
+
+const WATCHLIST_CODE_KEY = "watchlistCode";
+
+function getStoredCode() {
+  try {
+    return localStorage.getItem(WATCHLIST_CODE_KEY) || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function setStoredCode(code) {
+  try {
+    if (code) {
+      localStorage.setItem(WATCHLIST_CODE_KEY, code);
+    } else {
+      localStorage.removeItem(WATCHLIST_CODE_KEY);
+    }
+  } catch (err) {
+    // ignore storage failures (private browsing, quota, etc.)
+  }
+}
+
+function renderCodeBar() {
+  const code = getStoredCode();
+  if (code) {
+    watchlistCodeLabel.textContent = `Your code: ${code}`;
+    watchlistCodeLabel.classList.remove("muted");
+    watchlistCopyBtn.hidden = false;
+  } else {
+    watchlistCodeLabel.textContent = "No code yet — add a ticker below to create one.";
+    watchlistCodeLabel.classList.add("muted");
+    watchlistCopyBtn.hidden = true;
+  }
+}
+
+watchlistCopyBtn.addEventListener("click", async () => {
+  const code = getStoredCode();
+  if (!code) return;
+  try {
+    await navigator.clipboard.writeText(code);
+    watchlistCopyBtn.textContent = "Copied!";
+    setTimeout(() => {
+      watchlistCopyBtn.textContent = "Copy";
+    }, 1500);
+  } catch (err) {
+    // Clipboard API unavailable — the code is still visible to copy by hand.
+  }
+});
+
+function handleWatchlistCodeSubmit(event) {
+  event.preventDefault();
+  const code = watchlistCodeInput.value.trim().toUpperCase().replace(/[^A-Z]/g, "");
+  if (code.length !== 6) {
+    watchlistStatus.textContent = "A watchlist code is exactly 6 letters, e.g. KXQPZM.";
+    watchlistStatus.classList.add("error");
+    return;
+  }
+  setStoredCode(code);
+  watchlistCodeInput.value = "";
+  loadWatchlist();
+}
+
 // --- Watchlist & price alerts -----------------------------------------
 
 function loadAlerts() {
@@ -526,8 +599,16 @@ function renderWatchlist(data) {
 }
 
 async function loadWatchlist() {
+  renderCodeBar();
+  const code = getStoredCode();
+  if (!code) {
+    watchlistGrid.innerHTML = "";
+    watchlistStatus.classList.remove("error");
+    watchlistStatus.textContent = "Add a ticker below to start a watchlist and get your code.";
+    return;
+  }
   try {
-    const res = await fetch("/api/watchlist");
+    const res = await fetch(`/api/watchlist?code=${encodeURIComponent(code)}`);
     const data = await res.json();
     renderWatchlist(data);
   } catch (err) {
@@ -543,7 +624,7 @@ async function addToWatchlist(symbol) {
     const res = await fetch("/api/watchlist", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbol }),
+      body: JSON.stringify({ symbol, code: getStoredCode() }),
     });
     const data = await res.json();
     if (data.error) {
@@ -551,7 +632,13 @@ async function addToWatchlist(symbol) {
       watchlistStatus.classList.add("error");
       return;
     }
+    if (data.code) setStoredCode(data.code);
+    renderCodeBar();
     renderWatchlist(data);
+    if (data.generated) {
+      watchlistStatus.textContent = `Created your watchlist! Your code is ${data.code} — save it to check this list from any device.`;
+      watchlistStatus.classList.remove("error");
+    }
   } catch (err) {
     watchlistStatus.textContent = "Failed to add symbol.";
     watchlistStatus.classList.add("error");
@@ -559,10 +646,13 @@ async function addToWatchlist(symbol) {
 }
 
 async function removeFromWatchlist(symbol) {
+  const code = getStoredCode();
+  if (!code) return;
   try {
-    const res = await fetch(`/api/watchlist?symbol=${encodeURIComponent(symbol)}`, {
-      method: "DELETE",
-    });
+    const res = await fetch(
+      `/api/watchlist?code=${encodeURIComponent(code)}&symbol=${encodeURIComponent(symbol)}`,
+      { method: "DELETE" }
+    );
     const data = await res.json();
     renderWatchlist(data);
   } catch (err) {
@@ -592,6 +682,7 @@ function loadAll() {
 refreshBtn.addEventListener("click", loadAll);
 searchForm.addEventListener("submit", handleSearch);
 watchlistForm.addEventListener("submit", handleWatchlistSubmit);
+watchlistCodeForm.addEventListener("submit", handleWatchlistCodeSubmit);
 
 loadAll();
 setInterval(loadAll, 60000);

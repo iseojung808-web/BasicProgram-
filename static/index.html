@@ -4,6 +4,9 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>Economic Index Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="/style.css" />
 <link rel="manifest" href="/manifest.json" />
 <meta name="theme-color" content="#4f46e5" />
@@ -44,6 +47,23 @@
 
     <section class="watchlist-section">
       <h2>My Watchlist</h2>
+
+      <div class="code-bar">
+        <span id="watchlist-code-label" class="code-label muted">No code yet</span>
+        <button id="watchlist-copy-btn" class="code-btn" type="button" hidden>Copy</button>
+      </div>
+      <form id="watchlist-code-form" class="search-form code-form">
+        <input
+          id="watchlist-code-input"
+          type="text"
+          placeholder="Have a code from another device? Enter it"
+          maxlength="6"
+          autocapitalize="characters"
+          autocomplete="off"
+        />
+        <button type="submit">Load</button>
+      </form>
+
       <form id="watchlist-form" class="search-form">
         <input
           id="watchlist-input"
