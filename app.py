@@ -14,6 +14,7 @@ Only the Python standard library is used, so no `pip install` is required.
 """
 
 import json
+import os
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
@@ -25,7 +26,8 @@ from urllib.parse import quote, urlparse, parse_qs
 from urllib.request import Request, urlopen, build_opener, HTTPCookieProcessor
 
 HOST = "0.0.0.0"
-PORT = 8000
+# Free hosts (Render, Railway, etc.) assign the port via $PORT at runtime.
+PORT = int(os.environ.get("PORT", 8000))
 
 STATIC_DIR = Path(__file__).parent / "static"
 WATCHLIST_FILE = Path(__file__).parent / "watchlist.json"
@@ -484,6 +486,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_static("style.css", "text/css; charset=utf-8")
         elif path == "/script.js":
             self._send_static("script.js", "application/javascript; charset=utf-8")
+        elif path == "/manifest.json":
+            self._send_static("manifest.json", "application/manifest+json; charset=utf-8")
         elif path == "/api/indexes":
             self._send_json(get_indexes())
         elif path == "/api/news":
