@@ -36,6 +36,23 @@
       <div id="search-result"></div>
     </section>
 
+    <section class="watchlist-section">
+      <h2>My Watchlist</h2>
+      <form id="watchlist-form" class="search-form">
+        <input
+          id="watchlist-input"
+          type="text"
+          placeholder="Add a ticker, e.g. MSFT"
+          maxlength="10"
+          autocapitalize="characters"
+          autocomplete="off"
+        />
+        <button type="submit">Add</button>
+      </form>
+      <div id="watchlist-status" class="status-text"></div>
+      <div id="watchlist-grid" class="indexes-grid"></div>
+    </section>
+
     <section class="news-section">
       <h2>Related News</h2>
       <div id="news-status" class="status-text"></div>

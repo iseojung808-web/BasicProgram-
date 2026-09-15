@@ -9,9 +9,36 @@ const searchInput = document.getElementById("search-input");
 const searchStatus = document.getElementById("search-status");
 const searchResult = document.getElementById("search-result");
 
+const watchlistForm = document.getElementById("watchlist-form");
+const watchlistInput = document.getElementById("watchlist-input");
+const watchlistStatus = document.getElementById("watchlist-status");
+const watchlistGrid = document.getElementById("watchlist-grid");
+
 function formatChange(value) {
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(2)}`;
+}
+
+function computeSMA(closes, window) {
+  const sma = new Array(closes.length).fill(null);
+  let sum = 0;
+  for (let i = 0; i < closes.length; i++) {
+    sum += closes[i];
+    if (i >= window) sum -= closes[i - window];
+    if (i >= window - 1) sma[i] = sum / window;
+  }
+  return sma;
+}
+
+function seriesToPoints(series, totalCount, min, range, width, height, padding) {
+  const pts = [];
+  series.forEach((value, i) => {
+    if (value == null) return;
+    const x = padding + (i / (totalCount - 1)) * (width - padding * 2);
+    const y = height - padding - ((value - min) / range) * (height - padding * 2);
+    pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+  });
+  return pts.join(" ");
 }
 
 function buildChartSVG(history) {
@@ -20,29 +47,45 @@ function buildChartSVG(history) {
   }
 
   const closes = history.map((h) => h.close);
-  const min = Math.min(...closes);
-  const max = Math.max(...closes);
+  const sma10 = closes.length >= 10 ? computeSMA(closes, 10) : null;
+  const sma20 = closes.length >= 20 ? computeSMA(closes, 20) : null;
+
+  const allValues = [
+    ...closes,
+    ...((sma10 || []).filter((v) => v != null)),
+    ...((sma20 || []).filter((v) => v != null)),
+  ];
+  const min = Math.min(...allValues);
+  const max = Math.max(...allValues);
   const range = max - min || 1;
 
   const width = 300;
   const height = 70;
   const padding = 4;
 
-  const points = closes
-    .map((c, i) => {
-      const x = padding + (i / (closes.length - 1)) * (width - padding * 2);
-      const y = height - padding - ((c - min) / range) * (height - padding * 2);
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
-
+  const closePoints = seriesToPoints(closes, closes.length, min, range, width, height, padding);
   const trendUp = closes[closes.length - 1] >= closes[0];
   const color = trendUp ? "#16a34a" : "#dc2626";
 
+  let overlays = "";
+  let legend = "";
+  if (sma10) {
+    const pts = seriesToPoints(sma10, closes.length, min, range, width, height, padding);
+    overlays += `<polyline points="${pts}" fill="none" stroke="#f59e0b" stroke-width="1.3" stroke-dasharray="4 2" />`;
+    legend += `<span class="legend-item"><span class="legend-dot sma10"></span>SMA 10</span>`;
+  }
+  if (sma20) {
+    const pts = seriesToPoints(sma20, closes.length, min, range, width, height, padding);
+    overlays += `<polyline points="${pts}" fill="none" stroke="#6366f1" stroke-width="1.3" stroke-dasharray="1 2" />`;
+    legend += `<span class="legend-item"><span class="legend-dot sma20"></span>SMA 20</span>`;
+  }
+
   return `
     <svg viewBox="0 0 ${width} ${height}" class="chart-svg" preserveAspectRatio="none">
-      <polyline points="${points}" fill="none" stroke="${color}" stroke-width="2" />
+      <polyline points="${closePoints}" fill="none" stroke="${color}" stroke-width="2" />
+      ${overlays}
     </svg>
+    ${legend ? `<div class="chart-legend">${legend}</div>` : ""}
     <div class="chart-range">
       <span>${history[0].date}</span>
       <span>${history[history.length - 1].date}</span>
@@ -183,6 +226,39 @@ function buildFinancialsCard(financials) {
   return card;
 }
 
+function buildStatsCard(stats) {
+  const card = document.createElement("div");
+  card.className = "profile-card";
+
+  const range = (low, high) => (low != null && high != null ? `${low} – ${high}` : "—");
+
+  const rows = [
+    ["52-Week Range", range(stats.fiftyTwoWeekLow, stats.fiftyTwoWeekHigh)],
+    ["Day Range", range(stats.dayLow, stats.dayHigh)],
+    ["Volume", stats.volume ?? "—"],
+    ["Avg. Volume", stats.averageVolume ?? "—"],
+    ["P/E (Trailing)", stats.trailingPE ?? "—"],
+    ["P/E (Forward)", stats.forwardPE ?? "—"],
+    ["Dividend Yield", stats.dividendYield ?? "—"],
+    ["Beta", stats.beta ?? "—"],
+  ];
+
+  const rowsHtml = rows
+    .map(([label, value]) => `
+      <div class="profile-row">
+        <span class="profile-label">${label}</span>
+        <span class="profile-value">${value}</span>
+      </div>
+    `)
+    .join("");
+
+  card.innerHTML = `
+    <h3 class="card-heading">Key Statistics</h3>
+    ${rowsHtml}
+  `;
+  return card;
+}
+
 function renderIndexes(data) {
   indexesGrid.innerHTML = "";
 
@@ -244,14 +320,7 @@ async function loadNews() {
   }
 }
 
-function loadAll() {
-  loadIndexes();
-  loadNews();
-}
-
-async function handleSearch(event) {
-  event.preventDefault();
-  const symbol = searchInput.value.trim();
+async function runSearch(symbol) {
   searchResult.innerHTML = "";
   searchStatus.classList.remove("error");
 
@@ -282,11 +351,14 @@ async function handleSearch(event) {
     cardWrap.appendChild(buildIndexCard(data.quote && { ...data.quote, history: data.history }));
     searchResult.appendChild(cardWrap);
 
-    if (data.profile || data.financials) {
+    if (data.profile || data.financials || data.stats) {
       const detailsWrap = document.createElement("div");
       detailsWrap.className = "indexes-grid";
       if (data.profile) {
         detailsWrap.appendChild(buildProfileCard(data.profile, data.founders));
+      }
+      if (data.stats) {
+        detailsWrap.appendChild(buildStatsCard(data.stats));
       }
       if (data.financials) {
         detailsWrap.appendChild(buildFinancialsCard(data.financials));
@@ -310,8 +382,216 @@ async function handleSearch(event) {
   }
 }
 
+function handleSearch(event) {
+  event.preventDefault();
+  runSearch(searchInput.value.trim());
+}
+
+// --- Watchlist & price alerts -----------------------------------------
+
+function loadAlerts() {
+  try {
+    return JSON.parse(localStorage.getItem("watchlistAlerts") || "{}");
+  } catch (err) {
+    return {};
+  }
+}
+
+function saveAlerts(alerts) {
+  try {
+    localStorage.setItem("watchlistAlerts", JSON.stringify(alerts));
+  } catch (err) {
+    // ignore storage failures (private browsing, quota, etc.)
+  }
+}
+
+function notifyAlert(quote, target) {
+  const message = `${quote.symbol} crossed your target of $${target} (now $${quote.price})`;
+  try {
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification("Price Alert", { body: message });
+    }
+  } catch (err) {
+    // Notification API unsupported (e.g. iOS Safari) — the on-card badge below still shows.
+  }
+}
+
+function checkAlerts(quotes) {
+  const alerts = loadAlerts();
+  let changed = false;
+
+  for (const quote of quotes) {
+    const entry = alerts[quote.symbol];
+    if (!entry || entry.target == null) continue;
+
+    if (!entry.fired && entry.lastPrice != null) {
+      const crossed =
+        (entry.lastPrice < entry.target && quote.price >= entry.target) ||
+        (entry.lastPrice > entry.target && quote.price <= entry.target);
+      if (crossed) {
+        entry.fired = true;
+        notifyAlert(quote, entry.target);
+        changed = true;
+      }
+    }
+    if (entry.lastPrice !== quote.price) {
+      entry.lastPrice = quote.price;
+      changed = true;
+    }
+  }
+
+  if (changed) saveAlerts(alerts);
+  return alerts;
+}
+
+function buildWatchlistCard(quote, alerts) {
+  const direction = quote.change >= 0 ? "up" : "down";
+  const arrow = quote.change >= 0 ? "▲" : "▼";
+  const entry = alerts[quote.symbol];
+
+  const card = document.createElement("div");
+  card.className = "index-card watchlist-card";
+  card.innerHTML = `
+    <div class="name">${quote.name}</div>
+    <div class="symbol">${quote.symbol}</div>
+    <div class="price">${quote.price.toLocaleString()}</div>
+    <div class="change ${direction}">
+      ${arrow} ${formatChange(quote.change)} (${formatChange(quote.percentChange)}%)
+    </div>
+    ${entry && entry.fired ? `<div class="alert-badge">🔔 Target of $${entry.target} reached</div>` : ""}
+    <div class="alert-row">
+      <input type="number" step="0.01" class="alert-input" placeholder="Alert price" value="${entry && entry.target != null ? entry.target : ""}" />
+      <button type="button" class="alert-btn">Set Alert</button>
+    </div>
+  `;
+
+  const viewBtn = document.createElement("button");
+  viewBtn.className = "go-btn";
+  viewBtn.textContent = "View Details →";
+  viewBtn.addEventListener("click", () => {
+    searchInput.value = quote.symbol;
+    runSearch(quote.symbol);
+    searchInput.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+
+  const removeBtn = document.createElement("button");
+  removeBtn.className = "remove-btn";
+  removeBtn.textContent = "Remove";
+  removeBtn.addEventListener("click", () => removeFromWatchlist(quote.symbol));
+
+  const alertInput = card.querySelector(".alert-input");
+  const alertBtn = card.querySelector(".alert-btn");
+  alertBtn.addEventListener("click", () => {
+    const value = parseFloat(alertInput.value);
+    const allAlerts = loadAlerts();
+    if (Number.isNaN(value)) {
+      delete allAlerts[quote.symbol];
+    } else {
+      allAlerts[quote.symbol] = { target: value, fired: false, lastPrice: quote.price };
+      if ("Notification" in window && Notification.permission === "default") {
+        Notification.requestPermission();
+      }
+    }
+    saveAlerts(allAlerts);
+    renderWatchlist({ watchlist: currentWatchlistQuotes, errors: [] });
+  });
+
+  card.appendChild(viewBtn);
+  card.appendChild(removeBtn);
+  return card;
+}
+
+let currentWatchlistQuotes = [];
+
+function renderWatchlist(data) {
+  watchlistGrid.innerHTML = "";
+  currentWatchlistQuotes = data.watchlist || [];
+
+  if (currentWatchlistQuotes.length === 0) {
+    watchlistStatus.textContent = "Your watchlist is empty — add a ticker above.";
+    watchlistStatus.classList.remove("error");
+    return;
+  }
+
+  const alerts = checkAlerts(currentWatchlistQuotes);
+
+  watchlistStatus.classList.remove("error");
+  watchlistStatus.textContent = data.errors && data.errors.length
+    ? `Some watchlist symbols failed to load: ${data.errors.join("; ")}`
+    : "";
+
+  for (const quote of currentWatchlistQuotes) {
+    watchlistGrid.appendChild(buildWatchlistCard(quote, alerts));
+  }
+}
+
+async function loadWatchlist() {
+  try {
+    const res = await fetch("/api/watchlist");
+    const data = await res.json();
+    renderWatchlist(data);
+  } catch (err) {
+    watchlistStatus.textContent = "Failed to load watchlist.";
+    watchlistStatus.classList.add("error");
+  }
+}
+
+async function addToWatchlist(symbol) {
+  watchlistStatus.classList.remove("error");
+  watchlistStatus.textContent = `Adding ${symbol.toUpperCase()}...`;
+  try {
+    const res = await fetch("/api/watchlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      watchlistStatus.textContent = data.error;
+      watchlistStatus.classList.add("error");
+      return;
+    }
+    renderWatchlist(data);
+  } catch (err) {
+    watchlistStatus.textContent = "Failed to add symbol.";
+    watchlistStatus.classList.add("error");
+  }
+}
+
+async function removeFromWatchlist(symbol) {
+  try {
+    const res = await fetch(`/api/watchlist?symbol=${encodeURIComponent(symbol)}`, {
+      method: "DELETE",
+    });
+    const data = await res.json();
+    renderWatchlist(data);
+  } catch (err) {
+    watchlistStatus.textContent = "Failed to remove symbol.";
+    watchlistStatus.classList.add("error");
+  }
+}
+
+function handleWatchlistSubmit(event) {
+  event.preventDefault();
+  const symbol = watchlistInput.value.trim();
+  if (!symbol) {
+    watchlistStatus.textContent = "Enter a ticker symbol first.";
+    watchlistStatus.classList.add("error");
+    return;
+  }
+  addToWatchlist(symbol);
+  watchlistInput.value = "";
+}
+
+function loadAll() {
+  loadIndexes();
+  loadNews();
+  loadWatchlist();
+}
+
 refreshBtn.addEventListener("click", loadAll);
 searchForm.addEventListener("submit", handleSearch);
+watchlistForm.addEventListener("submit", handleWatchlistSubmit);
 
 loadAll();
 setInterval(loadAll, 60000);

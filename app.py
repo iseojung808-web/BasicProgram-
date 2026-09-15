@@ -28,6 +28,7 @@ HOST = "0.0.0.0"
 PORT = 8000
 
 STATIC_DIR = Path(__file__).parent / "static"
+WATCHLIST_FILE = Path(__file__).parent / "watchlist.json"
 
 # Symbol -> display name for the indexes we always track on the dashboard.
 INDEXES = {
@@ -227,7 +228,10 @@ def _fmt(d, key):
 
 def _fetch_quote_summary(symbol, force_refresh_crumb=False):
     crumb = get_yahoo_crumb(force_refresh=force_refresh_crumb)
-    modules = "assetProfile,financialData,incomeStatementHistory,balanceSheetHistory,price"
+    modules = (
+        "assetProfile,financialData,incomeStatementHistory,balanceSheetHistory,"
+        "price,summaryDetail,defaultKeyStatistics"
+    )
     url = (
         "https://query1.finance.yahoo.com/v10/finance/quoteSummary/"
         f"{quote(symbol)}?modules={modules}&crumb={quote(crumb)}"
@@ -253,11 +257,26 @@ def get_company_profile_and_financials(symbol):
     asset = r.get("assetProfile") or {}
     financial = r.get("financialData") or {}
     price_module = r.get("price") or {}
+    summary_detail = r.get("summaryDetail") or {}
+    key_stats = r.get("defaultKeyStatistics") or {}
     income_list = (r.get("incomeStatementHistory") or {}).get("incomeStatementHistory") or []
     balance_list = (r.get("balanceSheetHistory") or {}).get("balanceSheetStatements") or []
     income = income_list[0] if income_list else {}
     balance = balance_list[0] if balance_list else {}
     market_cap = _fmt(price_module, "marketCap") or _raw(price_module, "marketCap")
+
+    stats = {
+        "fiftyTwoWeekLow": _fmt(summary_detail, "fiftyTwoWeekLow") or _raw(summary_detail, "fiftyTwoWeekLow"),
+        "fiftyTwoWeekHigh": _fmt(summary_detail, "fiftyTwoWeekHigh") or _raw(summary_detail, "fiftyTwoWeekHigh"),
+        "dayLow": _fmt(summary_detail, "dayLow") or _raw(summary_detail, "dayLow"),
+        "dayHigh": _fmt(summary_detail, "dayHigh") or _raw(summary_detail, "dayHigh"),
+        "volume": _fmt(summary_detail, "volume") or _raw(summary_detail, "volume"),
+        "averageVolume": _fmt(summary_detail, "averageVolume") or _raw(summary_detail, "averageVolume"),
+        "trailingPE": _fmt(summary_detail, "trailingPE") or _raw(summary_detail, "trailingPE"),
+        "forwardPE": _fmt(key_stats, "forwardPE") or _raw(key_stats, "forwardPE"),
+        "dividendYield": _fmt(summary_detail, "dividendYield") or _raw(summary_detail, "dividendYield"),
+        "beta": _fmt(key_stats, "beta") or _raw(key_stats, "beta"),
+    }
 
     officers = asset.get("companyOfficers") or []
     ceo = None
@@ -296,7 +315,7 @@ def get_company_profile_and_financials(symbol):
         "profitMargin": _fmt(financial, "profitMargins"),
     }
 
-    return profile, financials, market_cap
+    return profile, financials, market_cap, stats
 
 
 def get_founders(company_name):
@@ -339,8 +358,56 @@ def get_founders(company_name):
     return names
 
 
+def load_watchlist():
+    try:
+        with WATCHLIST_FILE.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def save_watchlist(symbols):
+    with WATCHLIST_FILE.open("w", encoding="utf-8") as f:
+        json.dump(symbols, f)
+
+
+def normalize_symbol(raw_symbol):
+    return re.sub(r"[^A-Za-z0-9.\-^]", "", raw_symbol or "").upper()
+
+
+def get_watchlist_quotes():
+    symbols = load_watchlist()
+    quotes = []
+    errors = []
+    for symbol in symbols:
+        try:
+            quotes.append(get_quote(symbol))
+        except (URLError, HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
+            errors.append(f"{symbol}: {exc}")
+    return {"watchlist": quotes, "errors": errors}
+
+
+def add_to_watchlist(raw_symbol):
+    symbol = normalize_symbol(raw_symbol)
+    if not symbol:
+        return {"error": "Please enter a ticker symbol, e.g. AAPL."}
+    symbols = load_watchlist()
+    if symbol not in symbols:
+        symbols.append(symbol)
+        save_watchlist(symbols)
+    return get_watchlist_quotes()
+
+
+def remove_from_watchlist(raw_symbol):
+    symbol = normalize_symbol(raw_symbol)
+    symbols = [s for s in load_watchlist() if s != symbol]
+    save_watchlist(symbols)
+    return get_watchlist_quotes()
+
+
 def get_company_lookup(raw_symbol):
-    symbol = re.sub(r"[^A-Za-z0-9.\-^]", "", raw_symbol or "").upper()
+    symbol = normalize_symbol(raw_symbol)
     if not symbol:
         return {"error": "Please enter a ticker symbol, e.g. AAPL."}
 
@@ -360,14 +427,16 @@ def get_company_lookup(raw_symbol):
         errors.append(f"news: {exc}")
 
     try:
-        profile, financials, market_cap = get_company_profile_and_financials(symbol)
+        profile, financials, market_cap, stats = get_company_profile_and_financials(symbol)
         result["profile"] = profile
         result["financials"] = financials
+        result["stats"] = stats
         if market_cap:
             result["quote"]["marketCap"] = market_cap
     except (URLError, HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
         result["profile"] = None
         result["financials"] = None
+        result["stats"] = None
         errors.append(f"company profile: {exc}")
 
     try:
@@ -423,6 +492,33 @@ class Handler(BaseHTTPRequestHandler):
             params = parse_qs(parsed.query)
             symbol = (params.get("symbol") or [""])[0]
             self._send_json(get_company_lookup(symbol))
+        elif path == "/api/watchlist":
+            self._send_json(get_watchlist_quotes())
+        else:
+            self.send_error(404, "Not found")
+
+    def _read_json_body(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        if length == 0:
+            return {}
+        try:
+            return json.loads(self.rfile.read(length).decode("utf-8"))
+        except json.JSONDecodeError:
+            return {}
+
+    def do_POST(self):
+        if self.path == "/api/watchlist":
+            body = self._read_json_body()
+            self._send_json(add_to_watchlist(body.get("symbol", "")))
+        else:
+            self.send_error(404, "Not found")
+
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/watchlist":
+            params = parse_qs(parsed.query)
+            symbol = (params.get("symbol") or [""])[0]
+            self._send_json(remove_from_watchlist(symbol))
         else:
             self.send_error(404, "Not found")
 

@@ -147,6 +147,35 @@ h2 {
   text-align: center;
 }
 
+.chart-legend {
+  display: flex;
+  gap: 12px;
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.legend-dot.sma10 {
+  background: #f59e0b;
+}
+
+.legend-dot.sma20 {
+  background: #6366f1;
+}
+
 .search-section {
   margin-bottom: 40px;
 }
@@ -279,8 +308,7 @@ h2 {
   font-size: 0.8rem;
 }
 
-.news-item .go-btn {
-  flex-shrink: 0;
+.go-btn {
   background: transparent;
   color: var(--accent);
   border: 1px solid var(--accent);
@@ -291,9 +319,18 @@ h2 {
   white-space: nowrap;
 }
 
-.news-item .go-btn:hover {
+.go-btn:hover {
   background: var(--accent);
   color: white;
+}
+
+.news-item .go-btn {
+  flex-shrink: 0;
+}
+
+.profile-card > .go-btn {
+  margin-top: 12px;
+  align-self: flex-start;
 }
 
 @media (max-width: 480px) {
@@ -301,4 +338,70 @@ h2 {
     flex-direction: column;
     align-items: flex-start;
   }
+}
+
+.watchlist-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.watchlist-card .go-btn,
+.watchlist-card .remove-btn {
+  margin-top: 8px;
+  align-self: flex-start;
+}
+
+.remove-btn {
+  background: transparent;
+  color: var(--down);
+  border: 1px solid var(--down);
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.remove-btn:hover {
+  background: var(--down);
+  color: white;
+}
+
+.alert-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.alert-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.alert-btn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.alert-btn:hover {
+  opacity: 0.9;
+}
+
+.alert-badge {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #b45309;
+  background: #fef3c7;
+  padding: 6px 10px;
+  border-radius: 8px;
+  margin-bottom: 8px;
 }
