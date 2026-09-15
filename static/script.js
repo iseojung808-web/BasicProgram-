@@ -39,11 +39,21 @@ function seriesToPoints(series, totalCount, min, range, width, height, padding) 
   const pts = [];
   series.forEach((value, i) => {
     if (value == null) return;
-    const x = padding + (i / (totalCount - 1)) * (width - padding * 2);
-    const y = height - padding - ((value - min) / range) * (height - padding * 2);
+    const x = padding.left + (i / (totalCount - 1)) * (width - padding.left - padding.right);
+    const y = height - padding.bottom - ((value - min) / range) * (height - padding.top - padding.bottom);
     pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
   });
   return pts.join(" ");
+}
+
+function formatAxisPrice(value) {
+  if (Math.abs(value) >= 1000) return value.toFixed(0);
+  return value.toFixed(2);
+}
+
+function formatAxisDate(dateStr) {
+  const parts = dateStr.split("-");
+  return parts.length === 3 ? `${parts[1]}/${parts[2]}` : dateStr;
 }
 
 function buildChartSVG(history) {
@@ -63,10 +73,11 @@ function buildChartSVG(history) {
   const min = Math.min(...allValues);
   const max = Math.max(...allValues);
   const range = max - min || 1;
+  const mid = (min + max) / 2;
 
-  const width = 300;
-  const height = 70;
-  const padding = 4;
+  const width = 320;
+  const height = 100;
+  const padding = { left: 38, right: 6, top: 8, bottom: 16 };
 
   const closePoints = seriesToPoints(closes, closes.length, min, range, width, height, padding);
   const trendUp = closes[closes.length - 1] >= closes[0];
@@ -85,16 +96,33 @@ function buildChartSVG(history) {
     legend += `<span class="legend-item"><span class="legend-dot sma20"></span>SMA 20</span>`;
   }
 
+  const yAxis = [max, mid, min]
+    .map((value) => {
+      const y = height - padding.bottom - ((value - min) / range) * (height - padding.top - padding.bottom);
+      return `
+        <line x1="${padding.left}" y1="${y.toFixed(1)}" x2="${width - padding.right}" y2="${y.toFixed(1)}" class="chart-gridline" />
+        <text x="${padding.left - 4}" y="${(y + 2.5).toFixed(1)}" class="chart-axis-label chart-axis-label-y" text-anchor="end">${formatAxisPrice(value)}</text>
+      `;
+    })
+    .join("");
+
+  const xTickIndexes = [0, Math.round((history.length - 1) / 2), history.length - 1];
+  const xAxis = xTickIndexes
+    .map((i) => {
+      const x = padding.left + (i / (closes.length - 1)) * (width - padding.left - padding.right);
+      const anchor = i === 0 ? "start" : i === history.length - 1 ? "end" : "middle";
+      return `<text x="${x.toFixed(1)}" y="${height - 3}" class="chart-axis-label" text-anchor="${anchor}">${formatAxisDate(history[i].date)}</text>`;
+    })
+    .join("");
+
   return `
     <svg viewBox="0 0 ${width} ${height}" class="chart-svg" preserveAspectRatio="none">
+      ${yAxis}
       <polyline points="${closePoints}" fill="none" stroke="${color}" stroke-width="2" />
       ${overlays}
+      ${xAxis}
     </svg>
     ${legend ? `<div class="chart-legend">${legend}</div>` : ""}
-    <div class="chart-range">
-      <span>${history[0].date}</span>
-      <span>${history[history.length - 1].date}</span>
-    </div>
   `;
 }
 
