@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Economic Index Tracker</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>Economic Index Tracker</h1>
+    <button id="refresh-btn" class="refresh-btn">Refresh</button>
+  </header>
+
+  <main>
+    <section class="indexes-section">
+      <h2>Market Indexes</h2>
+      <div id="indexes-status" class="status-text"></div>
+      <div id="indexes-grid" class="indexes-grid"></div>
+    </section>
+
+    <section class="news-section">
+      <h2>Related News</h2>
+      <div id="news-status" class="status-text"></div>
+      <ul id="news-list" class="news-list"></ul>
+    </section>
+  </main>
+
+  <script src="/script.js"></script>
+</body>
+</html>
