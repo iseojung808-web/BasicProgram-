@@ -174,6 +174,114 @@ def get_news():
     return {"news": news, "errors": errors}
 
 
+def _raw(d, key):
+    entry = (d or {}).get(key)
+    return entry.get("raw") if isinstance(entry, dict) else entry
+
+
+def _fmt(d, key):
+    entry = (d or {}).get(key)
+    return entry.get("fmt") if isinstance(entry, dict) else None
+
+
+def get_company_profile_and_financials(symbol):
+    url = (
+        "https://query1.finance.yahoo.com/v10/finance/quoteSummary/"
+        f"{quote(symbol)}?modules=assetProfile,financialData,incomeStatementHistory,balanceSheetHistory"
+    )
+    data = fetch_json(url)
+    results = data.get("quoteSummary", {}).get("result")
+    if not results:
+        raise ValueError("No company profile data found")
+    r = results[0]
+
+    asset = r.get("assetProfile") or {}
+    financial = r.get("financialData") or {}
+    income_list = (r.get("incomeStatementHistory") or {}).get("incomeStatementHistory") or []
+    balance_list = (r.get("balanceSheetHistory") or {}).get("balanceSheetStatements") or []
+    income = income_list[0] if income_list else {}
+    balance = balance_list[0] if balance_list else {}
+
+    officers = asset.get("companyOfficers") or []
+    ceo = None
+    for officer in officers:
+        title = (officer.get("title") or "").lower()
+        if "chief executive" in title or title.strip() == "ceo":
+            ceo = officer.get("name")
+            break
+
+    headquarters = ", ".join(
+        p for p in (asset.get("city"), asset.get("state"), asset.get("country")) if p
+    )
+
+    profile = {
+        "sector": asset.get("sector"),
+        "industry": asset.get("industry"),
+        "website": asset.get("website"),
+        "employees": asset.get("fullTimeEmployees"),
+        "headquarters": headquarters or None,
+        "summary": asset.get("longBusinessSummary"),
+        "ceo": ceo,
+    }
+
+    net_income_raw = _raw(income, "netIncome")
+    retained_raw = _raw(balance, "retainedEarnings")
+    period_end = income.get("endDate")
+
+    financials = {
+        "periodEnding": period_end.get("fmt") if isinstance(period_end, dict) else None,
+        "revenue": _fmt(income, "totalRevenue") or _raw(income, "totalRevenue"),
+        "grossProfit": _fmt(income, "grossProfit") or _raw(income, "grossProfit"),
+        "netIncome": _fmt(income, "netIncome") or net_income_raw,
+        "netIncomeIsLoss": net_income_raw is not None and net_income_raw < 0,
+        "retainedEarnings": _fmt(balance, "retainedEarnings") or retained_raw,
+        "retainedEarningsIsDeficit": retained_raw is not None and retained_raw < 0,
+        "profitMargin": _fmt(financial, "profitMargins"),
+    }
+
+    return profile, financials
+
+
+def get_founders(company_name):
+    """Best-effort lookup of a company's founder(s) via Wikidata (P112)."""
+    search_url = (
+        "https://www.wikidata.org/w/api.php?action=wbsearchentities"
+        f"&search={quote(company_name)}&language=en&format=json&type=item&limit=1"
+    )
+    search_data = fetch_json(search_url)
+    matches = search_data.get("search") or []
+    if not matches:
+        return []
+    entity_id = matches[0]["id"]
+
+    entity_url = f"https://www.wikidata.org/wiki/Special:EntityData/{entity_id}.json"
+    entity_data = fetch_json(entity_url)
+    claims = entity_data.get("entities", {}).get(entity_id, {}).get("claims", {})
+    founder_claims = claims.get("P112", [])
+
+    founder_ids = []
+    for claim in founder_claims:
+        try:
+            founder_ids.append(claim["mainsnak"]["datavalue"]["value"]["id"])
+        except (KeyError, TypeError):
+            continue
+    if not founder_ids:
+        return []
+
+    labels_url = (
+        "https://www.wikidata.org/w/api.php?action=wbgetentities"
+        f"&ids={'|'.join(founder_ids)}&props=labels&languages=en&format=json"
+    )
+    labels_data = fetch_json(labels_url)
+    names = []
+    for founder_id in founder_ids:
+        entity = labels_data.get("entities", {}).get(founder_id, {})
+        label = entity.get("labels", {}).get("en", {}).get("value")
+        if label:
+            names.append(label)
+    return names
+
+
 def get_company_lookup(raw_symbol):
     symbol = re.sub(r"[^A-Za-z0-9.\-^]", "", raw_symbol or "").upper()
     if not symbol:
@@ -193,6 +301,21 @@ def get_company_lookup(raw_symbol):
     except (URLError, HTTPError, ET.ParseError) as exc:
         result["news"] = []
         errors.append(f"news: {exc}")
+
+    try:
+        profile, financials = get_company_profile_and_financials(symbol)
+        result["profile"] = profile
+        result["financials"] = financials
+    except (URLError, HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
+        result["profile"] = None
+        result["financials"] = None
+        errors.append(f"company profile: {exc}")
+
+    try:
+        result["founders"] = get_founders(result["quote"]["name"])
+    except (URLError, HTTPError, KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+        result["founders"] = []
+        errors.append(f"founders: {exc}")
 
     result["errors"] = errors
     return result

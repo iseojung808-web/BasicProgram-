@@ -98,6 +98,90 @@ function renderNewsInto(listEl, articles) {
   }
 }
 
+function buildProfileCard(profile, founders) {
+  const card = document.createElement("div");
+  card.className = "profile-card";
+
+  const rows = [
+    ["CEO", profile.ceo || "Not available"],
+    ["Founder(s)", founders && founders.length ? founders.join(", ") : "Not available"],
+    ["Sector", profile.sector || "—"],
+    ["Industry", profile.industry || "—"],
+    ["Headquarters", profile.headquarters || "—"],
+    ["Employees", profile.employees ? profile.employees.toLocaleString() : "—"],
+  ];
+
+  const rowsHtml = rows
+    .map(([label, value]) => `
+      <div class="profile-row">
+        <span class="profile-label">${label}</span>
+        <span class="profile-value">${value}</span>
+      </div>
+    `)
+    .join("");
+
+  const summaryHtml = profile.summary
+    ? `<p class="profile-summary">${
+        profile.summary.length > 320 ? profile.summary.slice(0, 320) + "…" : profile.summary
+      }</p>`
+    : "";
+
+  card.innerHTML = `
+    <h3 class="card-heading">Company Profile</h3>
+    ${rowsHtml}
+    ${summaryHtml}
+  `;
+
+  if (profile.website) {
+    const websiteBtn = document.createElement("button");
+    websiteBtn.className = "go-btn";
+    websiteBtn.textContent = "Visit Website →";
+    websiteBtn.addEventListener("click", () => {
+      window.open(profile.website, "_blank", "noopener,noreferrer");
+    });
+    card.appendChild(websiteBtn);
+  }
+
+  return card;
+}
+
+function buildFinancialsCard(financials) {
+  const card = document.createElement("div");
+  card.className = "profile-card";
+
+  const netIncomeLabel = financials.netIncomeIsLoss ? "Net Loss" : "Net Profit";
+  const netIncomeClass = financials.netIncomeIsLoss ? "down" : "up";
+
+  const retainedLabel = financials.retainedEarningsIsDeficit
+    ? "Accumulated Deficit"
+    : "Retained Earnings (Surplus)";
+  const retainedClass = financials.retainedEarningsIsDeficit ? "down" : "up";
+
+  const rows = [
+    ["Total Revenue", financials.revenue, ""],
+    ["Gross Profit", financials.grossProfit, ""],
+    [netIncomeLabel, financials.netIncome, netIncomeClass],
+    [retainedLabel, financials.retainedEarnings, retainedClass],
+    ["Profit Margin", financials.profitMargin, ""],
+  ];
+
+  const rowsHtml = rows
+    .map(([label, value, cls]) => `
+      <div class="profile-row">
+        <span class="profile-label">${label}</span>
+        <span class="profile-value ${cls}">${value != null ? value : "—"}</span>
+      </div>
+    `)
+    .join("");
+
+  card.innerHTML = `
+    <h3 class="card-heading">Financial Snapshot</h3>
+    ${financials.periodEnding ? `<div class="status-text">As of ${financials.periodEnding}</div>` : ""}
+    ${rowsHtml}
+  `;
+  return card;
+}
+
 function renderIndexes(data) {
   indexesGrid.innerHTML = "";
 
@@ -196,6 +280,18 @@ async function handleSearch(event) {
     cardWrap.className = "indexes-grid";
     cardWrap.appendChild(buildIndexCard(data.quote && { ...data.quote, history: data.history }));
     searchResult.appendChild(cardWrap);
+
+    if (data.profile || data.financials) {
+      const detailsWrap = document.createElement("div");
+      detailsWrap.className = "indexes-grid";
+      if (data.profile) {
+        detailsWrap.appendChild(buildProfileCard(data.profile, data.founders));
+      }
+      if (data.financials) {
+        detailsWrap.appendChild(buildFinancialsCard(data.financials));
+      }
+      searchResult.appendChild(detailsWrap);
+    }
 
     if (data.news && data.news.length > 0) {
       const heading = document.createElement("h2");
