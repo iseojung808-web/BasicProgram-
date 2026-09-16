@@ -111,9 +111,11 @@ function buildChartSection(idx) {
   let refLine = "";
   if (prevClose != null) {
     const y = height - padding.bottom - ((prevClose - min) / range) * (height - padding.top - padding.bottom);
+    const plotMid = padding.top + (height - padding.top - padding.bottom) / 2;
+    const labelY = y > plotMid ? y - 3 : y + 9;
     refLine = `
       <line x1="${padding.left}" y1="${y.toFixed(1)}" x2="${width - padding.right}" y2="${y.toFixed(1)}" class="chart-refline" />
-      <text x="${width - padding.right}" y="${(y - 2.5).toFixed(1)}" class="chart-axis-label chart-refline-label" text-anchor="end">Prev Close</text>
+      <text x="${padding.left + 3}" y="${labelY.toFixed(1)}" class="chart-axis-label chart-refline-label" text-anchor="start">Prev Close</text>
     `;
   }
 
