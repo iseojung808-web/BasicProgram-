@@ -56,7 +56,17 @@ function formatAxisDate(dateStr) {
   return parts.length === 3 ? `${parts[1]}/${parts[2]}` : dateStr;
 }
 
-function buildChartSVG(history) {
+function buildStatRow(label, value) {
+  return `
+    <div class="chart-stat">
+      <span class="chart-stat-label">${label}</span>
+      <span class="chart-stat-value">${value}</span>
+    </div>
+  `;
+}
+
+function buildChartSection(idx) {
+  const history = idx.history;
   if (!history || history.length < 2) {
     return '<div class="chart-empty">Not enough data for a chart</div>';
   }
@@ -64,11 +74,13 @@ function buildChartSVG(history) {
   const closes = history.map((h) => h.close);
   const sma10 = closes.length >= 10 ? computeSMA(closes, 10) : null;
   const sma20 = closes.length >= 20 ? computeSMA(closes, 20) : null;
+  const prevClose = typeof idx.previousClose === "number" ? idx.previousClose : null;
 
   const allValues = [
     ...closes,
     ...((sma10 || []).filter((v) => v != null)),
     ...((sma20 || []).filter((v) => v != null)),
+    ...(prevClose != null ? [prevClose] : []),
   ];
   const min = Math.min(...allValues);
   const max = Math.max(...allValues);
@@ -96,6 +108,15 @@ function buildChartSVG(history) {
     legend += `<span class="legend-item"><span class="legend-dot sma20"></span>SMA 20</span>`;
   }
 
+  let refLine = "";
+  if (prevClose != null) {
+    const y = height - padding.bottom - ((prevClose - min) / range) * (height - padding.top - padding.bottom);
+    refLine = `
+      <line x1="${padding.left}" y1="${y.toFixed(1)}" x2="${width - padding.right}" y2="${y.toFixed(1)}" class="chart-refline" />
+      <text x="${width - padding.right}" y="${(y - 2.5).toFixed(1)}" class="chart-axis-label chart-refline-label" text-anchor="end">Prev Close</text>
+    `;
+  }
+
   const yAxis = [max, mid, min]
     .map((value) => {
       const y = height - padding.bottom - ((value - min) / range) * (height - padding.top - padding.bottom);
@@ -115,14 +136,41 @@ function buildChartSVG(history) {
     })
     .join("");
 
+  let peakIdx = 0;
+  let troughIdx = 0;
+  closes.forEach((v, i) => {
+    if (v > closes[peakIdx]) peakIdx = i;
+    if (v < closes[troughIdx]) troughIdx = i;
+  });
+
+  const stats = [
+    buildStatRow("Period High", `${formatAxisPrice(closes[peakIdx])} <span class="chart-stat-date">${formatAxisDate(history[peakIdx].date)}</span>`),
+    buildStatRow("Period Low", `${formatAxisPrice(closes[troughIdx])} <span class="chart-stat-date">${formatAxisDate(history[troughIdx].date)}</span>`),
+  ];
+  if (prevClose != null) {
+    stats.push(buildStatRow("Prev. Close", formatAxisPrice(prevClose)));
+  }
+  const latestSma = sma20 ? sma20[sma20.length - 1] : sma10 ? sma10[sma10.length - 1] : null;
+  if (latestSma != null) {
+    stats.push(buildStatRow(sma20 ? "20-Day Avg" : "10-Day Avg", formatAxisPrice(latestSma)));
+  }
+
   return `
-    <svg viewBox="0 0 ${width} ${height}" class="chart-svg" preserveAspectRatio="xMidYMid meet">
-      ${yAxis}
-      <polyline points="${closePoints}" fill="none" stroke="${color}" stroke-width="2" />
-      ${overlays}
-      ${xAxis}
-    </svg>
-    ${legend ? `<div class="chart-legend">${legend}</div>` : ""}
+    <div class="chart-row">
+      <div class="chart-svg-wrap">
+        <svg viewBox="0 0 ${width} ${height}" class="chart-svg" preserveAspectRatio="xMidYMid meet">
+          ${yAxis}
+          ${refLine}
+          <polyline points="${closePoints}" fill="none" stroke="${color}" stroke-width="2" />
+          ${overlays}
+          ${xAxis}
+        </svg>
+        ${legend ? `<div class="chart-legend">${legend}</div>` : ""}
+      </div>
+      <div class="chart-stats">
+        ${stats.join("")}
+      </div>
+    </div>
   `;
 }
 
@@ -140,7 +188,7 @@ function buildIndexCard(idx) {
     <div class="change ${direction}">
       ${arrow} ${formatChange(idx.change)} (${formatChange(idx.percentChange)}%)
     </div>
-    ${buildChartSVG(idx.history)}
+    ${buildChartSection(idx)}
   `;
   return card;
 }

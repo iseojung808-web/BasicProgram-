@@ -172,12 +172,63 @@ h2 {
   color: var(--down);
 }
 
+.chart-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.chart-svg-wrap {
+  flex: 1 1 200px;
+  max-width: 340px;
+  min-width: 160px;
+}
+
 .chart-svg {
   width: 100%;
   aspect-ratio: 320 / 100;
   height: auto;
-  max-height: 140px;
   display: block;
+}
+
+.chart-stats {
+  flex: 1 1 130px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+
+.chart-stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.74rem;
+}
+
+.chart-stat:last-child {
+  border-bottom: none;
+}
+
+.chart-stat-label {
+  color: var(--muted);
+}
+
+.chart-stat-value {
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.chart-stat-date {
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 0.66rem;
+  margin-left: 4px;
 }
 
 .chart-axis-label {
@@ -194,6 +245,18 @@ h2 {
   stroke-opacity: 0.2;
   stroke-width: 0.5;
   stroke-dasharray: 2 2;
+}
+
+.chart-refline {
+  stroke: var(--muted);
+  stroke-opacity: 0.5;
+  stroke-width: 0.7;
+  stroke-dasharray: 3 2;
+}
+
+.chart-refline-label {
+  fill: var(--muted);
+  opacity: 0.8;
 }
 
 .chart-empty {
