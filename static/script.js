@@ -116,7 +116,7 @@ function buildChartSVG(history) {
     .join("");
 
   return `
-    <svg viewBox="0 0 ${width} ${height}" class="chart-svg" preserveAspectRatio="none">
+    <svg viewBox="0 0 ${width} ${height}" class="chart-svg" preserveAspectRatio="xMidYMid meet">
       ${yAxis}
       <polyline points="${closePoints}" fill="none" stroke="${color}" stroke-width="2" />
       ${overlays}
